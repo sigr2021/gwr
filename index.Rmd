@@ -1,0 +1,585 @@
+---
+title: "SIGR 2021 - Atelier analyse spatiale (GWR)"
+author: "Thierry Feuillet"
+date: "01/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+***
+&nbsp;
+
+
+# Avertissement
+
+
+Les données de transcations immobilières utilisées ici (données DVF, pour Demandes de Valeurs Foncières), disponibles sous licence ouverte depuis 2019, sont réputées globalement fiables et exhaustives, mais nécessitent néanmoins des précautions d'utilisation (voir une description de leur qualité ici : https://www.groupe-dvf.fr/vademecum-fiche-n3-precautions-techniques-et-qualite-des-donnees-dvf/). La base utilisée ci-dessous a été retravaillée par etalab, un département de la direction interministérielle du numérique. 
+
+L'utilisation de ce jeu de données est ici réalisé dans un but exclusivement pédagogique, et non académique. Par conséquent, la qualité de la donnée n'a pas été re-vérifiée de façon approfondie, et il convient de rester prudent quant aux inférences issues de ces analyses.
+
+
+***
+&nbsp;
+
+
+# Objectif de cet atelier
+
+L'objectif de cet atelier est de mettre en pratique, dans R, certains des concepts et méthodes fréquemment employés en analyse spatiale, avec un focus ici sur l'hétérogénéité spatiale et la régression géographiquement pondérée (GWR).
+
+**L'hétérogénéité spatiale** fait partie de deux principaux concepts de l'analyse spatiale (aux côtés de la dépendance spatiale). Cette hétérogénéité est ubiquiste et systématique, et a pour conséquence qu'aucun lieu sur terre ne saurait être représentatif de tous les autres. Elle a un rôle fondamental dans les analyses géographiques, en particulier quantitatives (elle est indissociable des problèmes de représentativité spatiale, de résolution et d'échelle d'analyse). 
+
+D'un point de vue statistique, la traduction de l'hétérogénéité spatiale est la **non-stationnarité spatiale**. Celle-ci désigne l'instabilité, dans l'espace, des moyennes, des variances et des covariances. La non-stationnarité spatiale des covariances fait référence à l'hétérogénéité spatiale des relations statistiques. C'est cet élément qui fait l'objet de la démonstration ci-dessous.
+
+L'hétérogénéité spatiale des relations statistiques est très fréquente, dans de nombreux domaines (écologie, santé, économie, etc.), et son ignorance peut induire des erreurs d'interprétation importantes et des conséquences économiques et sanitaires (par exemple) non négligeables.  
+
+Dans le domaine des marchés immobiliers, cette hétérogénéité spatiale des relations est habituelle. Par exemple, on sait que l'effet marginal d'1&nbsp;m$^2$ supplémentaire sur le prix de vente est variable selon la localisation (typiquement plus élevé en zone dense, dans les centres-villes). Cela a des conséquences sur l'estimation des marchés, mais aussi en **modélisation hédonique**, sur l'estimation de la valeur de différentes caractéristiques sur la base de ces relations.
+
+Cela a poussé des auteurs à segmenter les marchés immobiliers en sous-marchés homogènes, au sein desquels les déterminants du prix seraient stationnaires (voir par exemple [Goodman et Thibodeau (1998)](https://www.sciencedirect.com/science/article/abs/pii/S1051137798902297) ou [Helbich *et al*. (2013)](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20)). La question est de savoir comment délimiter ces sous-marchés de façon pertinente.
+
+La méthode proposée dans le cadre de cet atelier, la **GWR**, est une méthode de régression locale qui permet précisément d'explorer la non-stationarité spatiale à travers des cartes de relations, et de servir alors de base pour une régionalisation. Nous allons préciser la façon dont ce type de modèle est calibré, estimé et interprété.
+
+
+***
+&nbsp;
+
+
+# Chargement des librairies
+
+```{r, message=FALSE}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(plotly)
+library(gtsummary)
+library(GGally)
+library(GWmodel)
+library(spdep)
+```
+
+***
+&nbsp;
+
+# Import et préparation de la base
+
+La base est disponible et décrite ici : https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres-geolocalisees/
+
+### Import de la base brute
+
+On importe directement le csv dans R (pour le département 17) :
+```{r, warning=FALSE, message=FALSE}
+data <- read_csv("https://files.data.gouv.fr/geo-dvf/latest/csv/2020/departements/17.csv.gz")
+head(data) #Pour vérifier que l'import est correct
+
+```
+
+### Filtre sur les ventes de maisons à Oléron avec coordonnées géographiques
+```{r}
+dataOleron <- data %>% 
+  filter(nom_commune %in% c("Dolus-d'Oléron",
+                        "La Brée-les-Bains",
+                        "Le Château-d'Oléron",
+                        "Le Grand-Village-Plage",
+                        "Saint-Denis-d'Oléron",
+                        "Saint-Georges-d'Oléron",
+                        "Saint-Pierre-d'Oléron",
+                        "Saint-Trojan-les-Bains") & 
+           nature_mutation == "Vente" & 
+           type_local == "Maison" &
+           !is.na(longitude) & 
+           !is.na(surface_terrain) &
+           !is.na(valeur_fonciere))
+
+```
+
+### Conversion en *sf*
+
+```{r, message=FALSE, warning=FALSE}
+dataSf <- dataOleron %>% 
+  st_as_sf(coords = c("longitude","latitude"), 
+           crs = 4326) # WGS84
+
+plot(st_geometry(dataSf))
+
+```
+
+***
+&nbsp;
+
+# Import du fond de carte en shapefile
+```{r, message=FALSE, warning=FALSE}
+oleron <- st_read("oleron.shp")
+
+```
+
+### Cartographie
+
+
+```{r}
+tmap_mode("view")
+tm_shape(oleron) + 
+  tm_lines(col = "black") + 
+  tm_shape(dataSf) + 
+  tm_dots(col = "red")
+
+```
+
+### Ajout d'une variable contextuelle : distance au littoral
+
+```{r}
+dataSf$dist_litt <- st_distance(dataSf, oleron) %>% 
+  as.numeric()
+
+```
+
+***
+&nbsp;
+
+# Exploration des variables
+
+## Distribution de la variable dépendante (prix de vente)
+
+```{r, message=FALSE, warning=FALSE}
+
+plot_ly(dataSf, x = ~valeur_fonciere) %>% add_histogram()
+
+```
+
+#### Suppression d'une valeur aberrante
+```{r}
+
+dataSf <- dataSf %>% filter(valeur_fonciere > 1000)
+
+```
+
+#### Distribution très dissymétrique
+
+```{r, message=FALSE, warning=FALSE}
+
+plot_ly(dataSf, x = ~log(valeur_fonciere)) %>% add_histogram()
+
+```
+#### C'est mieux !
+
+## Distribution des variables indépendantes
+
+```{r, message=FALSE, warning=FALSE}
+a <- plot_ly(dataSf, x = ~log(dist_litt)) %>% add_histogram()
+b <- plot_ly(dataSf, x = ~log(surface_reelle_bati)) %>% add_histogram()
+c <- plot_ly(dataSf, x = ~log(surface_terrain)) %>% add_histogram()
+subplot(a,b,c)
+
+# Suppression des maisons vraisemblablement trop petites
+dataSf <- dataSf %>% filter(surface_reelle_bati > 10)
+
+# Création des variables log (pour faciliter la carto par la suite)
+dataSf$log_valeur_fonciere <- log(dataSf$valeur_fonciere)
+dataSf$log_dist_litt <- log(dataSf$dist_litt)
+dataSf$log_surface_reelle_bati <- log(dataSf$surface_reelle_bati)
+dataSf$log_surface_terrain <- log(dataSf$surface_terrain)
+```
+
+***
+&nbsp;
+
+# Relations bivariées - formes fonctionelles
+
+```{r, message=FALSE, warning=FALSE}
+ggplot(dataSf, aes(x=log(dist_litt), y=log(valeur_fonciere))) + 
+  geom_point() + geom_smooth()
+ggplot(dataSf, aes(x=log(surface_reelle_bati), y=log(valeur_fonciere))) + 
+  geom_point() + geom_smooth()
+ggplot(dataSf, aes(x=log(surface_terrain), y=log(valeur_fonciere))) + 
+  geom_point() + geom_smooth()
+
+```
+
+***
+&nbsp;
+
+# Modèle log-log global (MCO)
+```{r}
+mco <- lm(log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain, data = dataSf)
+mco %>%
+  tbl_regression(intercept = TRUE) %>% 
+  add_vif()
+
+ggcoef_model(mco)
+
+```
+
+### Cartographie des résidus
+
+```{r, message=FALSE}
+dataSf$resMco <- mco$residuals
+
+tm_shape(dataSf) + tm_dots(col = "resMco", style = "quantile")
+
+```
+
+***
+&nbsp;
+
+# Modèle GWR
+
+***
+&nbsp;
+
+## Principes généraux
+
+```{r, echo=FALSE}
+url <- "https://user-images.githubusercontent.com/77114008/119621186-1f59eb80-be06-11eb-8bbf-4e4b1e989033.png"
+```
+![](`r url`){width=70%}
+
+***
+&nbsp;
+
+## Calibration du modèle : définition et pondération du voisinage
+
+```{r, echo=FALSE}
+url <- "https://user-images.githubusercontent.com/77114008/119622075-1cabc600-be07-11eb-804d-cdd99df68e15.png"
+```
+![](`r url`){width=80%}
+
+***
+&nbsp;
+
+#### Première chose à faire : convertir l'objet *sf* en objet *sp*
+```{r}
+
+dataSp <- as_Spatial(dataSf) # le package GWmodel n'est pas compatible avec 'sf'
+
+```
+
+***
+&nbsp;
+
+### Construction de la matrice de distances
+```{r}
+
+matDist <- gw.dist(dp.locat = coordinates(dataSp))
+
+```
+
+***
+&nbsp;
+
+### Optimisation du voisinage (h)
+```{r, echo=FALSE}
+url <- "https://user-images.githubusercontent.com/77114008/119618663-6f837e80-be03-11eb-8987-dcbadc72a7f1.png"
+```
+![](`r url`){width=70%}
+
+***
+&nbsp;
+
+#### Comparaison de deux pondérations spatiales : exponentielle et bicarrée :
+
+```{r}
+# Exponential
+nNeigh.exp <- bw.gwr(data = dataSp, approach = "AICc",
+                     kernel = "exponential",
+                     adaptive = TRUE,
+                     dMat = matDist,
+                     formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+
+# Bisquare
+nNeigh.bisq <- bw.gwr(data = dataSp, approach = "AICc", 
+                 kernel = "bisquare", 
+                 adaptive = TRUE, 
+                 dMat = matDist, 
+                 formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+
+```
+
+
+
+### Estimation de la GWR
+
+```{r, warning=FALSE}
+# Avec pondération exponential
+GWR.exp <- gwr.basic(data = dataSp, bw = nNeigh.exp, kernel = "exponential", adaptive = TRUE,  dMat = matDist, formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+
+# Avec pondération bisquare
+GWR.bisq <- gwr.basic(data = dataSp, bw = nNeigh.bisq, kernel = "bisquare", 
+                 adaptive = TRUE,  dMat = matDist, 
+                 formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+
+```
+
+#### Comparaison des deux calibrations :
+
+```{r, warning=FALSE}
+diagGwr <- cbind(
+  rbind(nNeigh.exp,nNeigh.bisq),
+  rbind(GWR.exp$GW.diagnostic$gw.R2,GWR.bisq$GW.diagnostic$gw.R2),
+  rbind(GWR.exp$GW.diagnostic$AIC,GWR.bisq$GW.diagnostic$AIC)) %>% 
+  `colnames<-`(c("Nb Voisins","R2","AIC")) %>% 
+  `rownames<-`(c("EXPONENTIAL","BISQUARE"))
+diagGwr
+```  
+
+#### La GWR avec pondération exponentielle est la plus performante
+
+***
+&nbsp;
+
+#### **Interprétation des résultats bruts de la GWR :**
+
+
+```{r, warning=FALSE}
+GWR.exp
+```  
+
+***
+&nbsp;
+
++ Première information : le R2 du modèle GWR est > au R2 du modèle MCO (plus grande capacité à expliquer la variance de Y).
++ Seconde information : il semble exister une non-stationnarité spatiale, et même des inversions de signes pour la variable distance au littoral
+
+Il faut maintenant cartographier les betas de chaque variable pour décrire cette non-stationnarité spatiale.
+
+```{r, warning=FALSE, message=FALSE}
+# Fonction de cartographie automatique des coefficients GWR
+mapGWR <- function(spdf,var,var_TV,legend.title = "betas GWR",main.title, dot.size = 0.3) {
+  tv <- spdf[abs(var_TV)>1.96,]
+  tm_shape(spdf) +
+    tm_dots(var, title = legend.title, size = dot.size) +
+    tm_shape(oleron) + tm_lines() +
+    tm_shape(tv) + tm_dots(col="grey40") +
+    tm_layout(title = main.title, legend.title.size =0.9, inner.margins = .15) 
+}
+
+```
+
+
+
+```{r, warning=FALSE, message=FALSE}
+# Planche cartographique des 3 variables
+tmap_mode("plot")
+a <- mapGWR(GWR.exp$SDF, var = "log_dist_litt",var_TV = GWR.exp$SDF$log_dist_litt_TV,
+       main.title = "Distance au littoral")
+b <- mapGWR(GWR.exp$SDF, var = "log_surface_reelle_bati",var_TV = GWR.exp$SDF$log_surface_reelle_bati_TV,
+       main.title = "Surface bâtie")
+c <- mapGWR(GWR.exp$SDF, var = "log_surface_terrain",var_TV = GWR.exp$SDF$log_surface_terrain_TV,
+       main.title = "Surface terrain")
+
+tmap_arrange(a,b,c)
+
+```
+
+***
+&nbsp;
+
+# Interprétation des cartes de betas GWR
+
+L'interprétation des cartes GWR est la partie la plus délicate, mais aussi la plus intéressante. Nous présentons d'abord une clé de lecture théorique et générique, puis une application à nos données.
+
+
+### Interprétation théorique : le poids des contextes locaux
+
+```{r, echo=FALSE}
+url <- "https://user-images.githubusercontent.com/77114008/120323810-3147fc80-c2e6-11eb-9807-5e29533218e9.png"
+```
+![](`r url`){width=55%}
+
+***
+&nbsp;
+
+### Interprétation empirique : recherche de spécificités locales inobservées
+
+
+
+***
+&nbsp;
+
+
+# Pour aller plus loin
+
+## La GWR multiscalaire (*multiscale GWR*)
+
+Il n'y a pas de raison de penser que tous les prédicteurs agissent sur le prix à la même échelle (c'est-à-dire selon un même schéma de voisinage). Certains processus peuvent être locaux, d'autres globaux. Récemment, une extension de la GWR a été proposée, permettant de relâcher cette hypothèse d'égalité des échelles : la GWR multiscalaire (MGWR). Le principe est simple : un algorithme optimise le choix de la bandwidth pour chaque prédicteur, en fonction des autres. Il en résulte un modèle souvent mixte.
+
+***
+&nbsp;
+
+```{r, message=FALSE, warning=FALSE}
+source("gwr.multiscale_T.r") 
+
+# On lance la MGWR
+MGWR <- gwr.multiscale(formula = log_valeur_fonciere ~ log_dist_litt + 
+                         log_surface_reelle_bati + log_surface_terrain,
+                       data = dataSp, kernel = "exponential",
+                       predictor.centered=rep(T, 3), # centrage des prédicteurs
+                       adaptive = TRUE,
+                       bws0 = rep(1,4)) # BW minimum pour l'optimisation
+mgwr.bw  <- round(MGWR[[2]]$bws,1) # Nombre de voisins pour chaque prédicteur
+mgwr.bw
+```
+
+***
+&nbsp;
+
+
+```{r, message=FALSE}
+# Exploration des résultats statistiques
+print(MGWR)
+```
+
+***
+&nbsp;
+
+On constate que si l'effet de la surface bâtie sur les prix agit de façon assez globale à l'échelle de l'île, les deux autres prédicteurs agissent de manière beaucoup plus locales. Ainsi par exemple, l'effet de la distance au littoral relève d'un processus très localisé.
+
+### Cartographie des résultats
+```{r, message=FALSE, warning=FALSE}
+
+a <- mapGWR(MGWR$SDF, var = "log_dist_litt",var_TV = MGWR$SDF$log_dist_litt_TV,
+       main.title = "Distance au littoral (bw = 77)")
+b <- mapGWR(MGWR$SDF, var = "log_surface_reelle_bati",var_TV = MGWR$SDF$log_surface_reelle_bati_TV,
+       main.title = "Surface bâtie (bw = 368)")
+c <- mapGWR(MGWR$SDF, var = "log_surface_terrain",var_TV = MGWR$SDF$log_surface_terrain_TV,
+       main.title = "Surface terrain (bw = 23)")
+
+tmap_arrange(a,b,c)
+
+```
+
+***
+&nbsp;
+
+
+## Régionalisation des sous-marchés immobiliers
+
+L'objectif est maintenant de délimiter des sous-marchés immobiliers, sur la base des coefficients de la GWR. Ainsi, on recherchera l'homogénéité des prédicteurs dans chaque sous-marché.
+
+Ce processus de découpage de l'espace en sous-régions homogènes se nomme la **régionalisation**. C'est une extension de la classification classique : on y ajoute un critère de **contiguité spatiale**. La régionalisation est donc une classification spatiale.
+
+Il existe plusieurs méthodes de régionalisation. Un des principes les plus répandus consiste à établir une classification à la fois sur la base de la ressemblance entre les observations, et sur leur proximité dans l'espace géographique.  
+
+Nous allons ici utiliser l'algorithme SKATER (*Spatial Klustering Analysis by Tree Edge Removal*), méthode proposée par [Assunçao *et al*. (2006)](https://www.tandfonline.com/doi/full/10.1080/13658810600665111?casa_token=mWExZotmvvYAAAAA%3ALKCKernTwxvTgQ6xnJXJHsBXTNskkVqmWOemnnrpXVPOgPft_-glclLzRnxeKhAYsyjeNHgKJ1fi) et déjà appliqué dans un contexte de recherche similaire au notre par [Helbich *et al*. (2013)](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20). Par ailleurs, une description très pédagogique de la méthode est disponible ici : http://www.jms-insee.fr/2018/S08_5_ACTE_ROUSSEZ_JMS2018.pdf
+
+L'algorithme SKATER comporte 4 étapes (*cf*. doc cité ci-dessus) :
+
+1. Constuction d'un graphe de voisinage (contiguité ou knn)
+2. Pondération des liens du graphe à partir de la matrice de dissimilarité
+3. Construction de l'arbre portant minimal, en retenant le lien avec le voisin le plus ressemblant pour chaque noeud
+4. Elagage de l'arbre maximisant la variance inter-classes des sous-graphes
+
+***
+&nbsp;
+
+### Première étape : préparation de la table des coefficients GWR
+```{r, message=FALSE, warning=FALSE}
+
+# Centrage-réduction pour rendre les coefficients comparables
+gwrB.scaled <- GWR.exp$SDF %>% 
+  as.data.frame() %>% 
+  select(1:4) %>% 
+  mutate_all(~scale(.)) %>% 
+  rename_with(~paste(.x, "b", sep = "_"))
+```
+***
+
+### Deuxième étape : computation de l'algorithme SKATER
+
+#### Définition du voisinage de chaque bien
+```{r, message=FALSE, warning=FALSE}
+
+
+knn <- knearneigh(GWR.exp$SDF, k=50)
+nb <- knn2nb(knn)
+plot(nb, coords = coordinates(GWR.exp$SDF), col="blue")
+```
+
+#### Calibrage du coût des arêtes et de la pondération spatiale
+
+```{r, message=FALSE, warning=FALSE}
+
+costs <- nbcosts(nb, data = gwrB.scaled)
+costsW <- nb2listw(nb, costs, style="B")
+```
+
+#### Minimisation de l'arbre et classification
+
+```{r, message=FALSE, warning=FALSE}
+
+costsTree <- mstree(costsW)
+plot(costsTree, coords = coordinates(GWR.exp$SDF), col="blue", main = "Arbre portant minimal")
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+clus6 <- skater(edges = costsTree[,1:2], data = gwrB.scaled, ncuts = 5)
+```
+
+***
+
+### Troisième étape : analyse des résultats
+
+#### Cartographie des clusters
+
+```{r, message=FALSE, warning=FALSE}
+
+dataClus <- dataSf %>% 
+  mutate(clus = as.factor(clus6$groups)) %>% 
+  bind_cols(gwrB.scaled)
+
+tmap_mode(mode = "view")
+tm_shape(dataClus) + 
+  tm_symbols(col="clus", size=.8, palette = "Set1") +
+  tm_layout(title = "Classification en 6 groupes") 
+```
+
+#### Caractérisation des clusters
+
+```{r, message=FALSE, warning=FALSE}
+
+nomVar <- c("log_dist_litt_b","log_surface_reelle_bati_b","log_surface_terrain_b","Intercept_b")
+
+clusProfile <- dataClus[, c(nomVar, "clus")] %>% 
+  group_by(clus) %>% 
+  summarise_each(funs(mean)) %>% 
+  st_drop_geometry()
+
+clusLong <- reshape2::melt(clusProfile, id.vars = "clus")
+
+profilePlot <- ggplot(clusLong) +
+  geom_bar(aes(x = variable, y = value), 
+           fill = "grey25", 
+           position = "identity", 
+           stat = "identity") +
+  scale_x_discrete("Effet") + 
+  scale_y_continuous("Valeur moyenne par classe") +
+  facet_wrap(~ clus) + 
+  coord_flip() + 
+  theme(strip.background = element_rect(fill="grey25"),
+        strip.text = element_text(colour = "grey85", face = "bold"))
+
+profilePlot
+```
+
+***
+&nbsp;
+
+## Bibliographie
+
++ Assunção, R. M., Neves, M. C., Câmara, G., & da Costa Freitas, C. (2006). [Efficient regionalization techniques for socio‐economic geographical units using minimum spanning trees](https://www.tandfonline.com/doi/full/10.1080/13658810600665111?casa_token=mWExZotmvvYAAAAA%3ALKCKernTwxvTgQ6xnJXJHsBXTNskkVqmWOemnnrpXVPOgPft_-glclLzRnxeKhAYsyjeNHgKJ1fi). *International Journal of Geographical Information Science*, 20(7), 797-811.
+
++ Feuillet, T., Commenges, H., Menai, M., Salze, P., Perchoux, C., Reuillon, R., ... & Oppert, J. M. (2018). [A massive geographically weighted regression model of walking-environment relationships](https://www.sciencedirect.com/science/article/abs/pii/S0966692317306555). *Journal of transport geography*, 68, 118-129.
+
++ Feuillet, T., Cossart, E., & Commenges, H. (2019). [*Manuel de géographie quantitative: concepts, outils, méthodes*](https://www.armand-colin.com/manuel-de-geographie-quantitative-concepts-outils-methodes-9782200622336). Armand Colin.
+
++ Goodman, A. C., & Thibodeau, T. G. (1998). [Housing market segmentation](https://www.sciencedirect.com/science/article/abs/pii/S1051137798902297). *Journal of housing economics*, 7(2), 121-143.
+
++ Helbich, M., Brunauer, W., Hagenauer, J., & Leitner, M. (2013). [Data-driven regionalization of housing markets](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20). *Annals of the Association of American Geographers*, 103(4), 871-889.
+
+***
+&nbsp;
+
+```{r}
+sessionInfo()
+```
