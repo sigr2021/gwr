@@ -1,16 +1,16 @@
 ---
 title: "SIGR 2021 - Atelier analyse spatiale (GWR)"
-author: "Thierry Feuillet (Université Paris 8)"
+author: "Thierry Feuillet (univerité Paris 8 / UMR LADYSS)"
 date: "01/07/2021"
 output: html_document
 ---
-
-```{r setup, include=FALSE}
+  
+  ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 
 # Avertissement
@@ -39,11 +39,11 @@ Dans le domaine des marchés immobiliers, cette hétérogénéité spatiale des 
 
 Cela a poussé des auteurs à segmenter les marchés immobiliers en sous-marchés homogènes, au sein desquels les déterminants du prix seraient stationnaires (voir par exemple [Goodman et Thibodeau (1998)](https://www.sciencedirect.com/science/article/abs/pii/S1051137798902297) ou [Helbich *et al*. (2013)](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20)). La question est de savoir comment délimiter ces sous-marchés de façon pertinente.
 
-La méthode proposée dans le cadre de cet atelier, la **GWR**, est une méthode de régression locale qui permet précisément d'explorer la non-stationarité spatiale à travers des cartes de relations, et de servir alors de base pour une régionalisation. Nous allons préciser la façon dont ce type de modèle est calibré, estimé et interprété.
+La méthode proposée dans le cadre de cet atelier, la **GWR**, est une méthode de régression locale qui permet précisément d'explorer la non-stationarité spatiale à travers des cartes de relations ([Fotheringham *et al*., 2003](https://www.wiley.com/en-us/Geographically+Weighted+Regression%3A+The+Analysis+of+Spatially+Varying+Relationships+-p-9780471496168)), et de servir alors de base pour une régionalisation. Nous allons préciser la façon dont ce type de modèle est calibré, estimé et interprété.
 
 
 ***
-&nbsp;
+  &nbsp;
 
 
 # Chargement des librairies
@@ -60,16 +60,16 @@ library(spdep)
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Import et préparation de la base
 
 La base est disponible et décrite ici : https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres-geolocalisees/
-
-### Import de la base brute
-
-On importe directement le csv dans R (pour le département 17) :
-```{r, warning=FALSE, message=FALSE}
+  
+  ### Import de la base brute
+  
+  On importe directement le csv dans R (pour le département 17) :
+  ```{r, warning=FALSE, message=FALSE}
 data <- read_csv("https://files.data.gouv.fr/geo-dvf/latest/csv/2020/departements/17.csv.gz")
 head(data) #Pour vérifier que l'import est correct
 
@@ -79,13 +79,13 @@ head(data) #Pour vérifier que l'import est correct
 ```{r}
 dataOleron <- data %>% 
   filter(nom_commune %in% c("Dolus-d'Oléron",
-                        "La Brée-les-Bains",
-                        "Le Château-d'Oléron",
-                        "Le Grand-Village-Plage",
-                        "Saint-Denis-d'Oléron",
-                        "Saint-Georges-d'Oléron",
-                        "Saint-Pierre-d'Oléron",
-                        "Saint-Trojan-les-Bains") & 
+                            "La Brée-les-Bains",
+                            "Le Château-d'Oléron",
+                            "Le Grand-Village-Plage",
+                            "Saint-Denis-d'Oléron",
+                            "Saint-Georges-d'Oléron",
+                            "Saint-Pierre-d'Oléron",
+                            "Saint-Trojan-les-Bains") & 
            nature_mutation == "Vente" & 
            type_local == "Maison" &
            !is.na(longitude) & 
@@ -106,7 +106,7 @@ plot(st_geometry(dataSf))
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Import du fond de carte en shapefile
 ```{r, message=FALSE, warning=FALSE}
@@ -135,7 +135,7 @@ dataSf$dist_litt <- st_distance(dataSf, oleron) %>%
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Exploration des variables
 
@@ -182,7 +182,7 @@ dataSf$log_surface_terrain <- log(dataSf$surface_terrain)
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Relations bivariées - formes fonctionelles
 
@@ -197,7 +197,7 @@ ggplot(dataSf, aes(x=log(surface_terrain), y=log(valeur_fonciere))) +
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Modèle log-log global (MCO)
 ```{r}
@@ -220,12 +220,12 @@ tm_shape(dataSf) + tm_dots(col = "resMco", style = "quantile")
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Modèle GWR
 
 ***
-&nbsp;
+  &nbsp;
 
 ## Principes généraux
 
@@ -235,7 +235,7 @@ url <- "https://user-images.githubusercontent.com/77114008/119621186-1f59eb80-be
 ![](`r url`){width=70%}
 
 ***
-&nbsp;
+  &nbsp;
 
 ## Calibration du modèle : définition et pondération du voisinage
 
@@ -245,7 +245,7 @@ url <- "https://user-images.githubusercontent.com/77114008/119622075-1cabc600-be
 ![](`r url`){width=80%}
 
 ***
-&nbsp;
+  &nbsp;
 
 #### Première chose à faire : convertir l'objet *sf* en objet *sp*
 ```{r}
@@ -255,7 +255,7 @@ dataSp <- as_Spatial(dataSf) # le package GWmodel n'est pas compatible avec 'sf'
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 ### Construction de la matrice de distances
 ```{r}
@@ -265,7 +265,7 @@ matDist <- gw.dist(dp.locat = coordinates(dataSp))
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 ### Optimisation du voisinage (h)
 ```{r, echo=FALSE}
@@ -274,7 +274,7 @@ url <- "https://user-images.githubusercontent.com/77114008/119618663-6f837e80-be
 ![](`r url`){width=70%}
 
 ***
-&nbsp;
+  &nbsp;
 
 #### Comparaison de deux pondérations spatiales : exponentielle et bicarrée :
 
@@ -288,10 +288,10 @@ nNeigh.exp <- bw.gwr(data = dataSp, approach = "AICc",
 
 # Bisquare
 nNeigh.bisq <- bw.gwr(data = dataSp, approach = "AICc", 
-                 kernel = "bisquare", 
-                 adaptive = TRUE, 
-                 dMat = matDist, 
-                 formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+                      kernel = "bisquare", 
+                      adaptive = TRUE, 
+                      dMat = matDist, 
+                      formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
 
 ```
 
@@ -305,8 +305,8 @@ GWR.exp <- gwr.basic(data = dataSp, bw = nNeigh.exp, kernel = "exponential", ada
 
 # Avec pondération bisquare
 GWR.bisq <- gwr.basic(data = dataSp, bw = nNeigh.bisq, kernel = "bisquare", 
-                 adaptive = TRUE,  dMat = matDist, 
-                 formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
+                      adaptive = TRUE,  dMat = matDist, 
+                      formula = log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain)
 
 ```
 
@@ -325,7 +325,7 @@ diagGwr
 #### La GWR avec pondération exponentielle est la plus performante
 
 ***
-&nbsp;
+  &nbsp;
 
 #### **Interprétation des résultats bruts de la GWR :**
 
@@ -335,7 +335,7 @@ GWR.exp
 ```  
 
 ***
-&nbsp;
+  &nbsp;
 
 + Première information : le R2 du modèle GWR est > au R2 du modèle MCO (plus grande capacité à expliquer la variance de Y).
 + Seconde information : il semble exister une non-stationnarité spatiale, et même des inversions de signes pour la variable distance au littoral
@@ -361,18 +361,18 @@ mapGWR <- function(spdf,var,var_TV,legend.title = "betas GWR",main.title, dot.si
 # Planche cartographique des 3 variables
 tmap_mode("plot")
 a <- mapGWR(GWR.exp$SDF, var = "log_dist_litt",var_TV = GWR.exp$SDF$log_dist_litt_TV,
-       main.title = "Distance au littoral")
+            main.title = "Distance au littoral")
 b <- mapGWR(GWR.exp$SDF, var = "log_surface_reelle_bati",var_TV = GWR.exp$SDF$log_surface_reelle_bati_TV,
-       main.title = "Surface bâtie")
+            main.title = "Surface bâtie")
 c <- mapGWR(GWR.exp$SDF, var = "log_surface_terrain",var_TV = GWR.exp$SDF$log_surface_terrain_TV,
-       main.title = "Surface terrain")
+            main.title = "Surface terrain")
 
 tmap_arrange(a,b,c)
 
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 # Interprétation des cartes de betas GWR
 
@@ -387,24 +387,24 @@ url <- "https://user-images.githubusercontent.com/77114008/120323810-3147fc80-c2
 ![](`r url`){width=55%}
 
 ***
-&nbsp;
+  &nbsp;
 
 ### Interprétation empirique : recherche de spécificités locales inobservées
 
 
 
 ***
-&nbsp;
+  &nbsp;
 
 
 # Pour aller plus loin
 
 ## La GWR multiscalaire (*multiscale GWR*)
 
-Il n'y a pas de raison de penser que tous les prédicteurs agissent sur le prix à la même échelle (c'est-à-dire selon un même schéma de voisinage). Certains processus peuvent être locaux, d'autres globaux. Récemment, une extension de la GWR a été proposée, permettant de relâcher cette hypothèse d'égalité des échelles : la GWR multiscalaire (MGWR). Le principe est simple : un algorithme optimise le choix de la bandwidth pour chaque prédicteur, en fonction des autres. Il en résulte un modèle souvent mixte.
+Il n'y a pas de raison de penser que tous les prédicteurs agissent sur le prix à la même échelle (c'est-à-dire selon un même schéma de voisinage). Certains processus peuvent être locaux, d'autres globaux. Récemment, une extension de la GWR a été proposée, permettant de relâcher cette hypothèse d'égalité des échelles : la GWR multiscalaire (MGWR, [Fotheringham *et al*., 2017](https://www.tandfonline.com/doi/abs/10.1080/24694452.2017.1352480)). Le principe est simple : un algorithme optimise le choix de la bandwidth pour chaque prédicteur, en fonction des autres. Il en résulte un modèle souvent mixte.
 
 ***
-&nbsp;
+  &nbsp;
 
 ```{r, message=FALSE, warning=FALSE}
 source("gwr.multiscale_T.r") 
@@ -421,7 +421,7 @@ mgwr.bw
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 
 ```{r, message=FALSE}
@@ -430,7 +430,7 @@ print(MGWR)
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 On constate que si l'effet de la surface bâtie sur les prix agit de façon assez globale à l'échelle de l'île, les deux autres prédicteurs agissent de manière beaucoup plus locales. Ainsi par exemple, l'effet de la distance au littoral relève d'un processus très localisé.
 
@@ -463,8 +463,8 @@ Il existe plusieurs méthodes de régionalisation. Un des principes les plus ré
 Nous allons ici utiliser l'algorithme SKATER (*Spatial Klustering Analysis by Tree Edge Removal*), méthode proposée par [Assunçao *et al*. (2006)](https://www.tandfonline.com/doi/full/10.1080/13658810600665111?casa_token=mWExZotmvvYAAAAA%3ALKCKernTwxvTgQ6xnJXJHsBXTNskkVqmWOemnnrpXVPOgPft_-glclLzRnxeKhAYsyjeNHgKJ1fi) et déjà appliqué dans un contexte de recherche similaire au notre par [Helbich *et al*. (2013)](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20). Par ailleurs, une description très pédagogique de la méthode est disponible ici : http://www.jms-insee.fr/2018/S08_5_ACTE_ROUSSEZ_JMS2018.pdf
 
 L'algorithme SKATER comporte 4 étapes (*cf*. doc cité ci-dessus) :
-
-1. Constuction d'un graphe de voisinage (contiguité ou knn)
+  
+  1. Constuction d'un graphe de voisinage (contiguité ou knn)
 2. Pondération des liens du graphe à partir de la matrice de dissimilarité
 3. Construction de l'arbre portant minimal, en retenant le lien avec le voisin le plus ressemblant pour chaque noeud
 4. Elagage de l'arbre maximisant la variance inter-classes des sous-graphes
@@ -517,12 +517,12 @@ clus6 <- skater(edges = costsTree[,1:2], data = gwrB.scaled, ncuts = 5)
 ```
 
 ***
-
-### Troisième étape : analyse des résultats
-
-#### Cartographie des clusters
-
-```{r, message=FALSE, warning=FALSE}
+  
+  ### Troisième étape : analyse des résultats
+  
+  #### Cartographie des clusters
+  
+  ```{r, message=FALSE, warning=FALSE}
 
 dataClus <- dataSf %>% 
   mutate(clus = as.factor(clus6$groups)) %>% 
@@ -563,7 +563,7 @@ profilePlot
 ```
 
 ***
-&nbsp;
+  &nbsp;
 
 ## Bibliographie
 
@@ -573,12 +573,16 @@ profilePlot
 
 + Feuillet, T., Cossart, E., & Commenges, H. (2019). [*Manuel de géographie quantitative: concepts, outils, méthodes*](https://www.armand-colin.com/manuel-de-geographie-quantitative-concepts-outils-methodes-9782200622336). Armand Colin.
 
++ Fotheringham, A. S., Brunsdon, C., & Charlton, M. (2003). [*Geographically weighted regression: the analysis of spatially varying relationships*](https://www.wiley.com/en-us/Geographically+Weighted+Regression%3A+The+Analysis+of+Spatially+Varying+Relationships+-p-9780471496168). John Wiley & Sons.
+
++ Fotheringham, A. S., Yang, W., & Kang, W. (2017). [Multiscale geographically weighted regression (MGWR)](https://www.tandfonline.com/doi/abs/10.1080/24694452.2017.1352480). *Annals of the American Association of Geographers*, 107(6), 1247-1265.
+
 + Goodman, A. C., & Thibodeau, T. G. (1998). [Housing market segmentation](https://www.sciencedirect.com/science/article/abs/pii/S1051137798902297). *Journal of housing economics*, 7(2), 121-143.
 
 + Helbich, M., Brunauer, W., Hagenauer, J., & Leitner, M. (2013). [Data-driven regionalization of housing markets](https://www.tandfonline.com/doi/abs/10.1080/00045608.2012.707587?journalCode=raag20). *Annals of the Association of American Geographers*, 103(4), 871-889.
 
 ***
-&nbsp;
+  &nbsp;
 
 ```{r}
 sessionInfo()
