@@ -1,6 +1,6 @@
 ---
 title: "SIGR 2021 - Atelier analyse spatiale (GWR)"
-author: "Thierry Feuillet (univerité Paris 8 / UMR LADYSS)"
+author: "Thierry Feuillet (Université Paris 8 / UMR LADYSS)"
 date: "01/07/2021"
 output: html_document
 ---
