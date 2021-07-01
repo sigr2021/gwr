@@ -1,0 +1,147 @@
+---
+title: "#SIGR2021 - Analyse spatiale prix avec GWR"
+author: "Séance avec Thierry Feuillet / notes RLG "
+date: "7/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Overture des lib
+```{r open_libraries}
+library(tidyverse)
+library(sf)
+library(tmap)
+library(plotly)
+library(gtsummary)
+library(GGally)
+library(GWmodel)
+library(spdep)
+```
+
+## Import de la base brute
+
+Import et préparation de la base
+La base est disponible et décrite ici : https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres-geolocalisees/
+
+On importe directement le csv dans R (pour le département 17) :
+
+
+```{r Import_data}
+
+data <- read_csv("https://files.data.gouv.fr/geo-dvf/latest/csv/2020/departements/17.csv.gz")
+head(data) #Pour vérifier que l'import est correct
+
+```
+
+# Filtres sur les maisons d'Oléron
+
+```{r Filtrage}
+dataOleron <- data %>% 
+  filter(nom_commune %in% c("Dolus-d'Oléron",
+                            "La Brée-les-Bains",
+                            "Le Château-d'Oléron",
+                            "Le Grand-Village-Plage",
+                            "Saint-Denis-d'Oléron",
+                            "Saint-Georges-d'Oléron",
+                            "Saint-Pierre-d'Oléron",
+                            "Saint-Trojan-les-Bains") & 
+           nature_mutation == "Vente" & 
+           type_local == "Maison" &
+           !is.na(longitude) & 
+           !is.na(surface_terrain) &
+           !is.na(valeur_fonciere))
+```
+
+# Conversion en sf
+```{r Conv_SF}
+dataSf <- dataOleron %>% 
+  st_as_sf(coords = c("longitude","latitude"), 
+           crs = 4326) # WGS84
+
+plot(st_geometry(dataSf))
+```
+
+# Import du fond de carte en shapefile
+```{r importSHP}
+oleron <- st_read("oleron.shp")
+```
+
+# Import du fond de carte en shapefile
+```{r, message=FALSE, warning=FALSE}
+oleron <- st_read("oleron.shp")
+
+```
+
+### Cartographie
+
+
+```{r}
+tmap_mode("view")
+tm_shape(oleron) + 
+  tm_lines(col = "black") + 
+  tm_shape(dataSf) + 
+  tm_dots(col = "red")
+
+```
+
+### Ajout d'une variable contextuelle : distance au littoral
+
+Attention `st_distance` orthodromique ici, en mètre. Cette fonction est intéressante car elle peut faire de l'euclidien...
+
+```{r}
+dataSf$dist_litt <- st_distance(dataSf, oleron) %>% 
+  as.numeric()
+
+```
+
+# Exploration des variables
+
+## Distribution de la variable dépendante (prix de vente)
+
+```{r, message=FALSE, warning=FALSE}
+
+plot_ly(dataSf, x = ~valeur_fonciere) %>% add_histogram()
+
+```
+
+#### Suppression d'une valeur aberrante
+```{r}
+
+dataSf <- dataSf %>% filter(valeur_fonciere > 1000)
+
+```
+
+#### Distribution très dissymétrique
+
+```{r, message=FALSE, warning=FALSE}
+
+plot_ly(dataSf, x = ~log(valeur_fonciere)) %>% add_histogram()
+
+```
+#### C'est mieux !
+
+## Distribution des variables indépendantes
+
+```{r, message=FALSE, warning=FALSE}
+a <- plot_ly(dataSf, x = ~log(dist_litt)) %>% add_histogram()
+b <- plot_ly(dataSf, x = ~log(surface_reelle_bati)) %>% add_histogram()
+c <- plot_ly(dataSf, x = ~log(surface_terrain)) %>% add_histogram()
+d <- plot_ly(dataSf, x = ~log(valeur_fonciere)) %>% add_histogram()
+subplot(a,b,c,d)
+
+# Suppression des maisons vraisemblablement trop petites
+dataSf <- dataSf %>% filter(surface_reelle_bati > 10)
+
+# Création des variables log (pour faciliter la carto par la suite)
+dataSf$log_valeur_fonciere <- log(dataSf$valeur_fonciere)
+dataSf$log_dist_litt <- log(dataSf$dist_litt)
+dataSf$log_surface_reelle_bati <- log(dataSf$surface_reelle_bati)
+dataSf$log_surface_terrain <- log(dataSf$surface_terrain)
+```
+
+***
+  &nbsp;
