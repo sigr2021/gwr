@@ -200,6 +200,9 @@ ggplot(dataSf, aes(x=log(surface_terrain), y=log(valeur_fonciere))) +
   &nbsp;
 
 # Modèle log-log global (MCO)
+En travaillant en log log on peut travailler l'interprétation en pct.
+Par exemple, ici quand la distance au littoral augmente de 1%, la valeur diminue de 0.8%
+En régression linéaire c'est donc plus simple.
 ```{r}
 mco <- lm(log_valeur_fonciere ~ log_dist_litt + log_surface_reelle_bati + log_surface_terrain, data = dataSf)
 mco %>%
