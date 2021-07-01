@@ -525,7 +525,7 @@ clus6 <- skater(edges = costsTree[,1:2], data = gwrB.scaled, ncuts = 5)
   
   #### Cartographie des clusters
   
-  ```{r, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 
 dataClus <- dataSf %>% 
   mutate(clus = as.factor(clus6$groups)) %>% 
