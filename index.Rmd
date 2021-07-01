@@ -57,6 +57,7 @@ library(gtsummary)
 library(GGally)
 library(GWmodel)
 library(spdep)
+library(reshape2)
 ```
 
 ***
@@ -66,7 +67,7 @@ library(spdep)
 
 La base est disponible et décrite ici : https://www.data.gouv.fr/fr/datasets/demandes-de-valeurs-foncieres-geolocalisees/
   
-  ### Import de la base brute
+### Import de la base brute
   
   On importe directement le csv dans R (pour le département 17) :
   ```{r, warning=FALSE, message=FALSE}
@@ -518,11 +519,11 @@ clus6 <- skater(edges = costsTree[,1:2], data = gwrB.scaled, ncuts = 5)
 
 ***
   
-  ### Troisième étape : analyse des résultats
+### Troisième étape : analyse des résultats
   
-  #### Cartographie des clusters
+#### Cartographie des clusters
   
-  ```{r, message=FALSE, warning=FALSE}
+```{r, message=FALSE, warning=FALSE}
 
 dataClus <- dataSf %>% 
   mutate(clus = as.factor(clus6$groups)) %>% 
